@@ -1,0 +1,103 @@
+{
+  "name": "openchamber-android-simulator",
+  "version": "0.1.0",
+  "description": "OpenChamber extension that streams Android emulators and ADB devices live in a panel and multi-tile page, with low-latency touch/keyboard input and OpenCode agent tools.",
+  "license": "MIT",
+  "private": true,
+  "keywords": [
+    "openchamber",
+    "openchamber-extension",
+    "android",
+    "emulator",
+    "adb",
+    "scrcpy"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "check": "bunx openchamber-guest-check",
+    "typecheck": "bun check --no-script",
+    "test": "bun test",
+    "verify": "bun run typecheck && bun test && bun run build && bun run check"
+  },
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.7.1"
+    },
+    "id": "android-simulator",
+    "name": "Android Simulator",
+    "icon": "smartphone",
+    "contributes": {
+      "panel": {
+        "entry": "dist/panel/index.html",
+        "dock": "top",
+        "size": 44
+      },
+      "page": {
+        "entry": "dist/page/index.html",
+        "title": "Android Simulator"
+      },
+      "statusSection": {
+        "source": {
+          "path": "/status",
+          "interval": 2500
+        },
+        "title": "Android Simulator",
+        "defaultExpanded": true
+      },
+      "instructions": true,
+      "skills": "skills",
+      "opencodePlugin": "plugin",
+      "tools": [
+        {
+          "match": "android_device",
+          "name": "Android Device",
+          "icon": "smartphone",
+          "title": "Device · {input.action}",
+          "subtitle": "{input.serial}",
+          "output": "json"
+        },
+        {
+          "match": "android_input",
+          "name": "Android Input",
+          "icon": "smartphone",
+          "title": "Input · {input.action}",
+          "subtitle": "{input.serial}",
+          "output": "json"
+        },
+        {
+          "match": "android_inspect",
+          "name": "Android Inspect",
+          "icon": "smartphone",
+          "title": "Inspect · {input.action}",
+          "subtitle": "{input.serial}",
+          "output": "json"
+        }
+      ],
+      "service": {
+        "entry": "dist/service/main.js",
+        "runtime": "host",
+        "surface": true,
+        "permissions": {
+          "exec": [
+            "adb",
+            "emulator",
+            "scrcpy-server",
+            "ffmpeg"
+          ]
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@openchamber/sdk": "2.7.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.6.6"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}

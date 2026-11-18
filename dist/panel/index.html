@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--oc-background, transparent);
+        color: var(--oc-foreground, inherit);
+        font-family: var(--oc-font, system-ui, sans-serif);
+        overflow: hidden;
+      }
+      #root {
+        padding: 6px 8px;
+        box-sizing: border-box;
+      }
+      .oc-bar-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .oc-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        min-height: 32px;
+      }
+      .oc-slot-device {
+        min-width: 140px;
+        max-width: 220px;
+        flex: 1 1 150px;
+      }
+      .oc-slot-group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .oc-slot-badge {
+        margin-left: auto;
+      }
+      .oc-extras-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding-top: 4px;
+        border-top: 1px solid var(--oc-border, rgba(128, 128, 128, 0.25));
+      }
+      .oc-extra-field {
+        flex: 1 1 170px;
+        min-width: 140px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./main.js"></script>
+  </body>
+</html>
