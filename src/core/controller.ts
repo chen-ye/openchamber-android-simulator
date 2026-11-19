@@ -36,6 +36,7 @@ const TEMP_DIR = '/tmp/opencode';
 const KEYCODE_DEL = 67;
 const KEYCODE_ENTER = 66;
 const KEYCODE_MOVE_END = 123;
+const SAFE_SCREENSHOT_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 function ensureTempDir(): string {
   mkdirSync(TEMP_DIR, { recursive: true });
@@ -44,6 +45,40 @@ function ensureTempDir(): string {
 
 function safeSerialTag(serial: string): string {
   return serial.replace(/[^A-Za-z0-9_.-]/g, '_');
+}
+
+export function resolveScreenshotPath(serial: string, rawFilename?: unknown): string {
+  const dir = ensureTempDir();
+  if (rawFilename === undefined || rawFilename === null) {
+    return path.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (typeof rawFilename !== 'string') {
+    throw new Error('filename must be a string when provided.');
+  }
+  const trimmed = rawFilename.trim();
+  if (!trimmed) {
+    return path.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (
+    trimmed.includes('/') ||
+    trimmed.includes('\\') ||
+    trimmed.includes('\0') ||
+    trimmed === '.' ||
+    trimmed === '..' ||
+    trimmed.includes('..')
+  ) {
+    throw new Error('filename must be a plain file name under /tmp/opencode/ (no path separators or "..").');
+  }
+  if (!SAFE_SCREENSHOT_NAME_RE.test(trimmed)) {
+    throw new Error('filename may only contain letters, digits, ".", "_", and "-".');
+  }
+  const withExt = trimmed.toLowerCase().endsWith('.png') ? trimmed : `${trimmed}.png`;
+  const resolved = path.resolve(dir, withExt);
+  const resolvedDir = path.resolve(dir);
+  if (!resolved.startsWith(`${resolvedDir}${path.sep}`)) {
+    throw new Error('filename resolved outside /tmp/opencode/.');
+  }
+  return resolved;
 }
 
 // Per-device async mutex so concurrent agent calls / panel actions never race on uiautomator or input
@@ -668,13 +703,12 @@ export async function executeAgentTool(
     return withDeviceLock(serial, async () => {
       switch (action) {
         case 'screenshot': {
+          const filePath = resolveScreenshotPath(serial, input.filename);
           const [png, size, focus] = await Promise.all([
             screencapPng(serial, bins),
             queryScreenSize(serial, bins),
             queryCurrentFocus(serial, bins),
           ]);
-          const dir = ensureTempDir();
-          const filePath = path.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
           writeFileSync(filePath, png);
           const width = size?.width ?? (png.length >= 24 ? png.readUInt32BE(16) : 0);
           const height = size?.height ?? (png.length >= 24 ? png.readUInt32BE(20) : 0);

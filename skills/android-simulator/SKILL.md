@@ -18,11 +18,13 @@ Prefer semantic selectors and structured UI inspection over blind pixel guessing
    - Otherwise call `android_inspect({ action: "layout", annotate: true })` (add `tree: true` to disambiguate duplicate labels inside sibling cards), then tap by `node: N` (from `#N`) or exact `center` coordinates.
    - Use `android_input({ action: "scroll", direction: "down", until: "text=Save" })` to scroll inside scrollable containers, `long_press` for context menus, `text` with `clearFirst: true` / `submit: true`, and `sequence` to batch fast multi-step interactions without LLM round-trip latency.
 
-3. **Install, Launch, Reset & Debug:**
+3. **Install, Launch, Screenshot, Reset & Debug:**
    - Install APKs with `android_device({ action: "install_apk", apkPath: "...", grantPermissions: true })` (or `apkPaths: [...]` for split APKs).
    - Launch, force-stop, or reset app data via `launch`, `stop_app`, and `clear_data`; open deep links via `open_url`.
+   - Capture screenshots with `android_inspect({ action: "screenshot", filename: "light.png" })` — writes PNG under `/tmp/opencode/` (or a timestamped file when `filename` is omitted) and returns `{ serial, path, width, height, currentFocus }` ready for `read` or `openchamber_render`.
+   - Prefer `android_inspect({ action: "screenshot" })` and `android_device({ action: "appearance", appearance: "light" | "dark" })` over raw `adb exec-out screencap` or `adb shell cmd uimode`.
    - Check crashes or logs with `android_inspect({ action: "logcat", lines: 120 })` (`clear: true` before reproducing a bug).
-   - Test rotation and dark mode via `rotate` and `appearance`.
+   - Test rotation via `android_device({ action: "rotate" })`.
 
 4. **Composing with Google's `android` CLI (when available, e.g. `~/.local/bin/android`):**
    - For **Jetpack Compose `@Preview`s** without booting an emulator: run `~/.local/bin/android preview render ... --component-tree`.

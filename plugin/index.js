@@ -1205,12 +1205,39 @@ var TEMP_DIR = "/tmp/opencode";
 var KEYCODE_DEL = 67;
 var KEYCODE_ENTER = 66;
 var KEYCODE_MOVE_END = 123;
+var SAFE_SCREENSHOT_NAME_RE = /^[A-Za-z0-9._-]+$/;
 function ensureTempDir() {
   mkdirSync(TEMP_DIR, { recursive: true });
   return TEMP_DIR;
 }
 function safeSerialTag(serial) {
   return serial.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+function resolveScreenshotPath(serial, rawFilename) {
+  const dir = ensureTempDir();
+  if (rawFilename === undefined || rawFilename === null) {
+    return path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (typeof rawFilename !== "string") {
+    throw new Error("filename must be a string when provided.");
+  }
+  const trimmed = rawFilename.trim();
+  if (!trimmed) {
+    return path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("\x00") || trimmed === "." || trimmed === ".." || trimmed.includes("..")) {
+    throw new Error('filename must be a plain file name under /tmp/opencode/ (no path separators or "..").');
+  }
+  if (!SAFE_SCREENSHOT_NAME_RE.test(trimmed)) {
+    throw new Error('filename may only contain letters, digits, ".", "_", and "-".');
+  }
+  const withExt = trimmed.toLowerCase().endsWith(".png") ? trimmed : `${trimmed}.png`;
+  const resolved = path3.resolve(dir, withExt);
+  const resolvedDir = path3.resolve(dir);
+  if (!resolved.startsWith(`${resolvedDir}${path3.sep}`)) {
+    throw new Error("filename resolved outside /tmp/opencode/.");
+  }
+  return resolved;
 }
 var deviceLocks = new Map;
 async function withDeviceLock(serial, fn) {
@@ -1717,13 +1744,12 @@ async function executeAgentTool(tool, input, ctx = {}) {
     return withDeviceLock(serial, async () => {
       switch (action) {
         case "screenshot": {
+          const filePath = resolveScreenshotPath(serial, input.filename);
           const [png, size, focus] = await Promise.all([
             screencapPng(serial, bins),
             queryScreenSize(serial, bins),
             queryCurrentFocus(serial, bins)
           ]);
-          const dir = ensureTempDir();
-          const filePath = path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
           writeFileSync(filePath, png);
           const width = size?.width ?? (png.length >= 24 ? png.readUInt32BE(16) : 0);
           const height = size?.height ?? (png.length >= 24 ? png.readUInt32BE(20) : 0);
@@ -2073,7 +2099,7 @@ var src_default = {
       });
       tools.add({
         name: "android_inspect",
-        description: "Inspect a booted Android device: dump structured uiautomator UI hierarchy (flat or nested tree with #N indices, center coords, hidden/offScreen flags, and optional #N annotated PNG), capture a PNG screenshot, or read logcat.",
+        description: "Inspect a booted Android device: dump structured uiautomator UI hierarchy (flat or nested tree with #N indices, center coords, hidden/offScreen flags, and optional #N annotated PNG under /tmp/opencode/), capture a PNG screenshot saved under /tmp/opencode/ (returning { serial, path, width, height, currentFocus }), or read logcat.",
         options: { codemode: false },
         input: {
           type: "object",
@@ -2086,6 +2112,10 @@ var src_default = {
             serial: {
               type: "string",
               description: "Target ADB serial (optional when one device is booted/selected)."
+            },
+            filename: {
+              type: "string",
+              description: 'For action="screenshot": optional output file name under /tmp/opencode/ (e.g. "screen_light.png"). Defaults to android-sim-<serial>-<timestamp>.png.'
             },
             annotate: {
               type: "boolean",

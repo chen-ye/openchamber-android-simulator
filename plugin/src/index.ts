@@ -305,7 +305,7 @@ export default {
       tools.add({
         name: 'android_inspect',
         description:
-          'Inspect a booted Android device: dump structured uiautomator UI hierarchy (flat or nested tree with #N indices, center coords, hidden/offScreen flags, and optional #N annotated PNG), capture a PNG screenshot, or read logcat.',
+          'Inspect a booted Android device: dump structured uiautomator UI hierarchy (flat or nested tree with #N indices, center coords, hidden/offScreen flags, and optional #N annotated PNG under /tmp/opencode/), capture a PNG screenshot saved under /tmp/opencode/ (returning { serial, path, width, height, currentFocus }), or read logcat.',
         options: { codemode: false },
         input: {
           type: 'object',
@@ -318,6 +318,11 @@ export default {
             serial: {
               type: 'string',
               description: 'Target ADB serial (optional when one device is booted/selected).',
+            },
+            filename: {
+              type: 'string',
+              description:
+                'For action="screenshot": optional output file name under /tmp/opencode/ (e.g. "screen_light.png"). Defaults to android-sim-<serial>-<timestamp>.png.',
             },
             annotate: {
               type: 'boolean',

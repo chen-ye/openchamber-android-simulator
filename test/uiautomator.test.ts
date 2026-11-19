@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseAdbDevicesOutput } from '../src/core/adb.ts';
-import { withDeviceLock } from '../src/core/controller.ts';
+import { resolveScreenshotPath, withDeviceLock } from '../src/core/controller.ts';
 import { matchUiNodes, parseUiHierarchyXml } from '../src/core/uiautomator.ts';
 
 describe('parseUiHierarchyXml', () => {
@@ -84,6 +84,24 @@ describe('withDeviceLock', () => {
       }),
     ]);
     expect(events).toEqual(['a:start', 'a:end', 'b:start', 'b:end']);
+  });
+});
+
+describe('resolveScreenshotPath', () => {
+  test('generates timestamped default path under /tmp/opencode when filename omitted', () => {
+    const out = resolveScreenshotPath('emulator-5554');
+    expect(out).toMatch(/^\/tmp\/opencode\/android-sim-emulator-5554-\d+\.png$/);
+  });
+
+  test('normalizes plain filenames and appends .png under /tmp/opencode', () => {
+    expect(resolveScreenshotPath('emulator-5554', 'home_light')).toBe('/tmp/opencode/home_light.png');
+    expect(resolveScreenshotPath('emulator-5554', 'home_dark.png')).toBe('/tmp/opencode/home_dark.png');
+  });
+
+  test('rejects path traversal, slashes, and invalid characters', () => {
+    expect(() => resolveScreenshotPath('emulator-5554', '../escape.png')).toThrow();
+    expect(() => resolveScreenshotPath('emulator-5554', 'sub/dir.png')).toThrow();
+    expect(() => resolveScreenshotPath('emulator-5554', 'bad name.png')).toThrow();
   });
 });
 

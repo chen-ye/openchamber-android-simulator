@@ -63,7 +63,7 @@ import {
   KEYCODE_VOLUME_UP,
 } from './input.ts';
 import { clearServiceDiscovery, writeServiceDiscovery } from './state-file.ts';
-import { buildStatusView } from './status.ts';
+import { buildStatusView, resolveStatusAction } from './status.ts';
 import { StreamManager } from './stream.ts';
 
 const port = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? '0');
@@ -718,8 +718,19 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
   if (method === 'POST' && pathname === '/status') {
     const body = JSON.parse(await readBody(req) || '{}') as { id?: string };
     const actionId = String(body.id ?? '');
-    if (actionId.startsWith('boot:')) {
-      const avd = actionId.slice(5);
+    if (devicesCache.length === 0) {
+      await refreshDevices(false);
+    }
+    const target = resolveStatusAction(actionId, devicesCache);
+    if (!target) {
+      json(res, 404, {
+        error: 'Device is no longer available.',
+        message: 'Device is no longer available.',
+      });
+      return;
+    }
+    if (target.kind === 'boot') {
+      const avd = target.avdName;
       bootingAvds.add(avd);
       try {
         const booted = await bootAvd(avd, { headless: true });
@@ -728,8 +739,8 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
       } finally {
         bootingAvds.delete(avd);
       }
-    } else if (actionId.startsWith('shutdown:')) {
-      const serial = actionId.slice(9);
+    } else {
+      const serial = target.serial;
       await streams.stop(serial);
       await shutdownDevice(serial);
       wakePlaceholderWaiters();
@@ -817,7 +828,7 @@ const server = http.createServer((req, res) => {
   route(req, res).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
-      json(res, 500, { error: message });
+      json(res, 500, { error: message, message });
     } else {
       res.end();
     }

@@ -59,6 +59,12 @@ function installGuestScrollbarActivity(doc) {
   }, { capture: true, passive: true });
 }
 var GUEST_SCROLLBAR_SCRIPT = `(${installGuestScrollbarActivity.toString()})(document);`;
+// node_modules/@openchamber/sdk/dist/status-controls.js
+var GUEST_STATUS_CONTROL_LABEL_MAX = 60;
+var GUEST_STATUS_CONTROL_VALUE_MAX = 80;
+// node_modules/@openchamber/sdk/dist/status-view.js
+var GUEST_STATUS_VIEW_TEXT_MAX = 200;
+var GUEST_STATUS_VIEW_NOTE_MAX = 300;
 // node_modules/@openchamber/sdk/dist/manifest.js
 var GUEST_PROVIDER_LOGO_BYTES_MAX = 1024 * 1024;
 var TRACKER_URL_TOKENS = ["{id}", "{segment}", "{segments+}"];
@@ -1548,12 +1554,39 @@ var TEMP_DIR = "/tmp/opencode";
 var KEYCODE_DEL = 67;
 var KEYCODE_ENTER = 66;
 var KEYCODE_MOVE_END = 123;
+var SAFE_SCREENSHOT_NAME_RE = /^[A-Za-z0-9._-]+$/;
 function ensureTempDir() {
   mkdirSync(TEMP_DIR, { recursive: true });
   return TEMP_DIR;
 }
 function safeSerialTag(serial) {
   return serial.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+function resolveScreenshotPath(serial, rawFilename) {
+  const dir = ensureTempDir();
+  if (rawFilename === undefined || rawFilename === null) {
+    return path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (typeof rawFilename !== "string") {
+    throw new Error("filename must be a string when provided.");
+  }
+  const trimmed = rawFilename.trim();
+  if (!trimmed) {
+    return path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
+  }
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("\x00") || trimmed === "." || trimmed === ".." || trimmed.includes("..")) {
+    throw new Error('filename must be a plain file name under /tmp/opencode/ (no path separators or "..").');
+  }
+  if (!SAFE_SCREENSHOT_NAME_RE.test(trimmed)) {
+    throw new Error('filename may only contain letters, digits, ".", "_", and "-".');
+  }
+  const withExt = trimmed.toLowerCase().endsWith(".png") ? trimmed : `${trimmed}.png`;
+  const resolved = path3.resolve(dir, withExt);
+  const resolvedDir = path3.resolve(dir);
+  if (!resolved.startsWith(`${resolvedDir}${path3.sep}`)) {
+    throw new Error("filename resolved outside /tmp/opencode/.");
+  }
+  return resolved;
 }
 var deviceLocks = new Map;
 async function withDeviceLock(serial, fn) {
@@ -2060,13 +2093,12 @@ async function executeAgentTool(tool, input, ctx = {}) {
     return withDeviceLock(serial, async () => {
       switch (action) {
         case "screenshot": {
+          const filePath = resolveScreenshotPath(serial, input.filename);
           const [png, size, focus] = await Promise.all([
             screencapPng(serial, bins),
             queryScreenSize(serial, bins),
             queryCurrentFocus(serial, bins)
           ]);
-          const dir = ensureTempDir();
-          const filePath = path3.join(dir, `android-sim-${safeSerialTag(serial)}-${Date.now()}.png`);
           writeFileSync(filePath, png);
           const width = size?.width ?? (png.length >= 24 ? png.readUInt32BE(16) : 0);
           const height = size?.height ?? (png.length >= 24 ? png.readUInt32BE(20) : 0);
@@ -2976,6 +3008,34 @@ function clearServiceDiscovery(pid) {
 }
 
 // src/service/status.ts
+function fnv1aHex6(input) {
+  let hash = 2166136261;
+  for (let i = 0;i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0").slice(0, 6);
+}
+function statusActionId(kind, target) {
+  const slug = target.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 22).replace(/-+$/g, "");
+  const hash = fnv1aHex6(target);
+  return slug ? `${kind}-${slug}-${hash}` : `${kind}-${hash}`;
+}
+function resolveStatusAction(actionId, devices) {
+  for (const d of devices) {
+    if (d.avdName && statusActionId("boot", d.avdName) === actionId) {
+      return { kind: "boot", avdName: d.avdName };
+    }
+    if (d.serial && statusActionId("shutdown", d.serial) === actionId) {
+      return { kind: "shutdown", serial: d.serial };
+    }
+  }
+  return null;
+}
+function clampText(raw, maxLen, fallback = "-") {
+  const trimmed = raw.trim() || fallback;
+  return trimmed.length <= maxLen ? trimmed : `${trimmed.slice(0, Math.max(1, maxLen - 1))}…`;
+}
 function buildStatusView(state) {
   const rows = [];
   if (!state.toolsAvailable.adb) {
@@ -2992,22 +3052,35 @@ function buildStatusView(state) {
     const dot = active.state === "booted" ? "success" : active.state === "booting" ? "info" : active.state === "unauthorized" ? "warning" : "muted";
     const actions = [];
     if (active.state === "off" && active.avdName) {
-      actions.push({ kind: "button", id: `boot:${active.avdName}`, label: "Boot", variant: "outline" });
+      actions.push({
+        kind: "button",
+        id: statusActionId("boot", active.avdName),
+        label: "Boot",
+        variant: "outline"
+      });
     } else if (active.state === "booted" && active.serial && (active.kind === "emulator" || active.transport === "tcp")) {
       actions.push({
         kind: "button",
-        id: `shutdown:${active.serial}`,
+        id: statusActionId("shutdown", active.serial),
         label: active.kind === "emulator" ? "Power off" : "Disconnect",
         variant: "outline",
-        confirm: active.kind === "emulator" ? `Shut down ${active.avdName ?? active.serial}?` : undefined
+        ...active.kind === "emulator" ? { confirm: "Power off?" } : {}
       });
     }
+    const rawValue = active.state === "booted" ? active.apiLevel ? `API ${active.apiLevel}` : "booted" : active.apiLevel ? `${active.state} · API ${active.apiLevel}` : active.state;
+    const detailParts = [
+      active.label,
+      active.apiLevel ? `API ${active.apiLevel}` : null,
+      active.screenWidth && active.screenHeight ? `${active.screenWidth}×${active.screenHeight}` : null,
+      active.state
+    ].filter(Boolean);
     rows.push({
       kind: "line",
       id: "active-device",
-      label: active.avdName ?? active.model ?? active.label,
+      label: clampText(active.avdName ?? active.model ?? active.label, GUEST_STATUS_CONTROL_LABEL_MAX, "Android device"),
       dot,
-      value: active.apiLevel ? `${active.state} · API ${active.apiLevel}` : active.state,
+      value: clampText(rawValue, GUEST_STATUS_CONTROL_VALUE_MAX),
+      tooltip: clampText(detailParts.join(" · "), GUEST_STATUS_VIEW_TEXT_MAX),
       ...actions.length > 0 ? { actions } : {}
     });
   } else {
@@ -3019,21 +3092,26 @@ function buildStatusView(state) {
     });
   }
   if (active?.state === "booted") {
+    const streamValue = state.stream.running ? state.stream.width > 0 && state.stream.height > 0 ? `${state.stream.width}×${state.stream.height} · ${Math.round(state.stream.fps)}fps` : `${Math.round(state.stream.fps)} fps` : "idle";
     rows.push({
       kind: "line",
       id: "stream",
-      label: "Stream",
+      label: state.stream.running ? `Stream · ${state.stream.mode}` : "Stream",
       dot: state.stream.running ? state.agentActive ? "info" : "success" : "muted",
-      value: state.stream.running ? `${state.stream.mode} · ${state.stream.width}x${state.stream.height} · ${state.stream.fps} fps` : "idle",
-      ...state.agentActive ? { badge: { label: "Agent active", tone: "info" } } : {}
+      value: clampText(streamValue, GUEST_STATUS_CONTROL_VALUE_MAX),
+      ...state.stream.running ? {
+        tooltip: clampText(`${state.stream.mode} · ${state.stream.width}×${state.stream.height} · ${state.stream.fps} fps`, GUEST_STATUS_VIEW_TEXT_MAX)
+      } : {},
+      ...state.agentActive ? { badge: { label: "Agent active", tone: "info" } } : {}
     });
   }
-  if (state.stream.error) {
+  const streamError = state.stream.error?.trim();
+  if (streamError) {
     rows.push({
       kind: "note",
       id: "stream-error",
       tone: "warning",
-      text: state.stream.error.slice(0, 280)
+      text: clampText(streamError, GUEST_STATUS_VIEW_NOTE_MAX)
     });
   }
   const bootedCount = state.devices.filter((d) => d.state === "booted").length;
@@ -3975,8 +4053,19 @@ async function route(req, res) {
   if (method === "POST" && pathname === "/status") {
     const body = JSON.parse(await readBody(req) || "{}");
     const actionId = String(body.id ?? "");
-    if (actionId.startsWith("boot:")) {
-      const avd = actionId.slice(5);
+    if (devicesCache.length === 0) {
+      await refreshDevices(false);
+    }
+    const target = resolveStatusAction(actionId, devicesCache);
+    if (!target) {
+      json(res, 404, {
+        error: "Device is no longer available.",
+        message: "Device is no longer available."
+      });
+      return;
+    }
+    if (target.kind === "boot") {
+      const avd = target.avdName;
       bootingAvds.add(avd);
       try {
         const booted = await bootAvd(avd, { headless: true });
@@ -3985,8 +4074,8 @@ async function route(req, res) {
       } finally {
         bootingAvds.delete(avd);
       }
-    } else if (actionId.startsWith("shutdown:")) {
-      const serial = actionId.slice(9);
+    } else {
+      const serial = target.serial;
       await streams.stop(serial);
       await shutdownDevice(serial);
       wakePlaceholderWaiters();
@@ -4063,7 +4152,7 @@ var server = http.createServer((req, res) => {
   route(req, res).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
-      json(res, 500, { error: message });
+      json(res, 500, { error: message, message });
     } else {
       res.end();
     }

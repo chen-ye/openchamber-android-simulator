@@ -24,3 +24,4 @@ OpenChamber extension in TypeScript/Bun targeting `@openchamber/sdk@2.7.1`.
 - Never auto-boot an offline AVD without an explicit user click or `android_device({ action: "boot" })`.
 - Never write runtime files inside the extension directory (it triggers live extension reload); runtime service discovery lives in `os.tmpdir()`.
 - `dist/` and `plugin/index.js` must stay up to date with `src/` and `plugin/src/`.
+- Work Status (`/status` `GuestStatusView`) is validated strictly by OpenChamber via `guestStatusViewSchema`: every `row.id` and `action.id` must match `GUEST_STATUS_CONTROL_ID` (`/^[a-z][a-z0-9-]{0,39}$/` — never raw colons, underscores, or uppercase serials/AVD names), labels/confirms must stay within `1..60` chars, values within `1..80` chars (compact for the 300px card), and multi-word badges must use `\u00A0` (`Agent\u00A0active`) so `WorkStatusPill` does not wrap onto two lines.
